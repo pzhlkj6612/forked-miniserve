@@ -1,13 +1,12 @@
 use reqwest::blocking::{Client, multipart};
 use rstest::rstest;
-use select::{
-    document::Document,
-    predicate::{Attr, Text},
-};
+use select::predicate::{Attr, Text};
 
 mod fixtures;
+mod utils;
 
 use crate::fixtures::{DIRECTORY_SYMLINK, Error, TestServer, reqwest_client, server};
+use crate::utils::document_from_read;
 
 /// This should work because the flags for uploading files and creating directories
 /// are set, and the directory name and path are valid.
@@ -23,7 +22,7 @@ fn creating_directories_works(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).all(|x| x.text() != test_directory_name));
 
     // Perform the actual creation.
@@ -45,7 +44,7 @@ fn creating_directories_works(
 
     // After creating, check whether the directory is now getting listed.
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(
         parsed
             .find(Text)
@@ -70,7 +69,7 @@ fn creating_directories_is_prevented(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).all(|x| x.text() != test_directory_name));
 
     // Ensure the directory creation form is not present
@@ -93,7 +92,7 @@ fn creating_directories_is_prevented(
 
     // After creating, check whether the directory is now getting listed (shouldn't).
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(
         parsed
             .find(Text)
@@ -115,7 +114,7 @@ fn creating_directories_through_symlinks_is_prevented(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).all(|x| x.text() != DIRECTORY_SYMLINK));
 
     // Attempt to perform directory creation.

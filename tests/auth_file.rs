@@ -1,10 +1,12 @@
 use reqwest::{StatusCode, blocking::Client};
 use rstest::rstest;
-use select::{document::Document, predicate::Text};
+use select::predicate::Text;
 
 mod fixtures;
+mod utils;
 
 use crate::fixtures::{Error, FILES, TestServer, reqwest_client, server};
+use crate::utils::document_from_read;
 
 #[rstest]
 #[case("joe", "123")]
@@ -25,7 +27,7 @@ fn auth_file_accepts(
     assert_eq!(status_code, StatusCode::OK);
 
     let body = response.error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     for &file in FILES {
         assert!(parsed.find(Text).any(|x| x.text() == file));
     }

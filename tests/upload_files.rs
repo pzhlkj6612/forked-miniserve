@@ -5,12 +5,13 @@ use assert_fs::fixture::TempDir;
 use reqwest::blocking::{Client, multipart};
 use reqwest::header::HeaderMap;
 use rstest::rstest;
-use select::document::Document;
 use select::predicate::{Attr, Text};
 
 mod fixtures;
+mod utils;
 
 use crate::fixtures::{Error, TestServer, reqwest_client, server, tmpdir};
+use crate::utils::document_from_read;
 
 // Generate the hashes using the following
 // ```bash
@@ -45,7 +46,7 @@ fn uploading_files_works(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).all(|x| x.text() != test_file_name));
 
     // Perform the actual upload.
@@ -78,7 +79,7 @@ fn uploading_files_works(
 
     // After uploading, check whether the uploaded file is now getting listed.
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).any(|x| x.text() == test_file_name));
 
     Ok(())
@@ -93,7 +94,7 @@ fn uploading_files_is_prevented(server: TestServer, reqwest_client: Client) -> R
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).all(|x| x.text() != test_file_name));
 
     // Ensure the file upload form is not present
@@ -118,7 +119,7 @@ fn uploading_files_is_prevented(server: TestServer, reqwest_client: Client) -> R
 
     // After uploading, check whether the uploaded file is NOT getting listed.
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(!parsed.find(Text).any(|x| x.text() == test_file_name));
 
     Ok(())
@@ -154,7 +155,7 @@ fn uploading_files_with_invalid_sha_func_is_prevented(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).all(|x| x.text() != test_file_name));
 
     // Perform the actual upload.
@@ -184,7 +185,7 @@ fn uploading_files_with_invalid_sha_func_is_prevented(
 
     // After uploading, check whether the uploaded file is NOT getting listed.
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(!parsed.find(Text).any(|x| x.text() == test_file_name));
 
     Ok(())
@@ -220,7 +221,7 @@ fn uploading_files_is_restricted(
 
     // After uploading, check whether the uploaded file is NOT getting listed.
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(!parsed.find(Text).any(|x| x.text() == test_file_name));
 
     Ok(())
@@ -251,7 +252,7 @@ fn uploading_files_to_allowed_dir_works(
             .get(server.url().join(upload_dir)?)
             .send()?
             .error_for_status()?;
-        let parsed = Document::from_read(body)?;
+        let parsed = document_from_read(body)?;
         assert!(parsed.find(Text).all(|x| x.text() != test_file_name));
 
         // Perform the actual upload.
@@ -275,7 +276,7 @@ fn uploading_files_to_allowed_dir_works(
 
         // After uploading, check whether the uploaded file is now getting listed.
         let body = reqwest_client.get(server.url().join(upload_dir)?).send()?;
-        let parsed = Document::from_read(body)?;
+        let parsed = document_from_read(body)?;
         assert!(parsed.find(Text).any(|x| x.text() == test_file_name));
     }
     Ok(())
@@ -302,7 +303,7 @@ fn uploading_duplicate_file_is_prevented(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).any(|x| x.text() == test_file_name));
 
     // Perform the actual upload.
@@ -331,7 +332,7 @@ fn uploading_duplicate_file_is_prevented(
 
     // After uploading, uploaded file is still getting listed.
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).any(|x| x.text() == test_file_name));
     // and assert the contents is the same as before
     assert_file_contents(&test_file_path, test_file_contents);
@@ -359,7 +360,7 @@ fn overwrite_duplicate_file(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).any(|x| x.text() == test_file_name));
 
     // Perform the actual upload.
@@ -384,7 +385,7 @@ fn overwrite_duplicate_file(
 
     // After uploading, verify the listing has the file
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).any(|x| x.text() == test_file_name));
     // and assert the contents is from recently uploaded file
     assert_file_contents(&test_file_path, test_file_contents_new);
@@ -410,7 +411,7 @@ fn rename_duplicate_file(#[case] server: TestServer, reqwest_client: Client) -> 
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).any(|x| x.text() == test_file_name));
 
     // Perform the actual upload.
@@ -435,7 +436,7 @@ fn rename_duplicate_file(#[case] server: TestServer, reqwest_client: Client) -> 
 
     // After uploading, assert the old file is still getting listed, and the new file is also in listing
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Text).any(|x| x.text() == test_file_name));
     assert!(parsed.find(Text).any(|x| x.text() == test_file_name_new));
     // and assert the contents is the same as before for old file, and new contents for new file
@@ -554,7 +555,7 @@ fn set_media_type(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     let input = parsed.find(Attr("id", "file-input")).next().unwrap();
     assert_eq!(input.attr("accept"), expected_accept_value);
@@ -586,7 +587,7 @@ fn chmod(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     let upload_action = parsed
         .find(Attr("id", "file_submit"))
         .next()

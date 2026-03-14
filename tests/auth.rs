@@ -1,11 +1,13 @@
 use pretty_assertions::assert_eq;
 use reqwest::{StatusCode, blocking::Client};
 use rstest::rstest;
-use select::{document::Document, predicate::Text};
+use select::predicate::Text;
 
 mod fixtures;
+mod utils;
 
 use crate::fixtures::{Error, FILES, TestServer, reqwest_client, server};
+use crate::utils::document_from_read;
 
 #[rstest]
 #[case("testuser:testpassword", "testuser", "testpassword")]
@@ -35,7 +37,7 @@ fn auth_accepts(
     assert_eq!(status_code, StatusCode::OK);
 
     let body = response.error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     for &file in FILES {
         assert!(parsed.find(Text).any(|x| x.text() == file));
     }
@@ -123,7 +125,7 @@ fn auth_multiple_accounts_pass(
     assert_eq!(status, StatusCode::OK);
 
     let body = response.error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     for &file in FILES {
         assert!(parsed.find(Text).any(|x| x.text() == file));
     }

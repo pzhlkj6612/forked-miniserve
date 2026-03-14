@@ -2,12 +2,15 @@ use std::io::Cursor;
 
 use reqwest::{StatusCode, blocking::Client};
 use rstest::rstest;
-use select::{document::Document, predicate::Text};
+use select::document::Document;
+use select::predicate::Text;
 use zip::ZipArchive;
 
 mod fixtures;
+mod utils;
 
 use crate::fixtures::{Error, TestServer, reqwest_client, server};
+use crate::utils::document_from_read;
 
 enum ArchiveKind {
     TarGz,
@@ -49,7 +52,7 @@ fn fetch_index_document(
     let resp = reqwest_client.get(server.url()).send()?;
     assert_eq!(resp.status(), expected);
 
-    Ok(Document::from_read(resp)?)
+    Ok(document_from_read(resp)?)
 }
 
 fn download_archive_bytes(

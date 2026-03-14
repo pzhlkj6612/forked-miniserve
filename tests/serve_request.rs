@@ -9,15 +9,17 @@ use regex::Regex;
 use reqwest::StatusCode;
 use reqwest::blocking::Client;
 use rstest::rstest;
-use select::{document::Document, node::Node, predicate::Attr};
+use select::{node::Node, predicate::Attr};
 
 mod fixtures;
+mod utils;
 
 use crate::fixtures::{
     DIR_BEHIND_SYMLINKED_DIR, DIRECTORIES, DIRECTORY_SYMLINK, Error,
     FILE_IN_DIR_BEHIND_SYMLINKED_DIR, FILE_SYMLINK, FILES, HIDDEN_DIRECTORIES, HIDDEN_FILES,
     TestServer, port, reqwest_client, server, tmpdir,
 };
+use crate::utils::document_from_read;
 
 #[rstest]
 fn serves_requests_with_no_options(reqwest_client: Client, tmpdir: TempDir) -> Result<(), Error> {
@@ -32,7 +34,7 @@ fn serves_requests_with_no_options(reqwest_client: Client, tmpdir: TempDir) -> R
         .get("http://localhost:8080")
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     for &file in FILES {
         assert!(parsed.find(|x: &Node| x.text() == file).next().is_some());
     }
@@ -54,7 +56,7 @@ fn serves_requests_with_non_default_port(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     for &file in FILES {
         let f = parsed.find(|x: &Node| x.text() == file).next().unwrap();
@@ -79,7 +81,7 @@ fn serves_requests_with_non_default_port(
             .get(server.url().join(directory)?)
             .send()?
             .error_for_status()?;
-        let dir_body_parsed = Document::from_read(dir_body)?;
+        let dir_body_parsed = document_from_read(dir_body)?;
         for &file in FILES {
             assert!(
                 dir_body_parsed
@@ -128,7 +130,7 @@ fn serves_requests_hidden_files(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     for &file in FILES.iter().chain(HIDDEN_FILES) {
         let f = parsed.find(|x: &Node| x.text() == file).next().unwrap();
@@ -149,7 +151,7 @@ fn serves_requests_hidden_files(
             .get(server.url().join(directory)?)
             .send()?
             .error_for_status()?;
-        let dir_body_parsed = Document::from_read(dir_body)?;
+        let dir_body_parsed = document_from_read(dir_body)?;
         for &file in FILES.iter().chain(HIDDEN_FILES) {
             assert!(
                 dir_body_parsed
@@ -172,7 +174,7 @@ fn serves_requests_no_hidden_files_without_flag(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     for &hidden_item in HIDDEN_FILES.iter().chain(HIDDEN_DIRECTORIES) {
         assert!(
@@ -231,7 +233,7 @@ fn serves_requests_symlinks(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     for &entry in &[FILE_SYMLINK, DIRECTORY_SYMLINK] {
         let status = reqwest_client
@@ -363,7 +365,7 @@ fn serve_index_instead_of_404_in_spa_mode(
         .get(format!("{}{}", server.url(), url))
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(
         parsed
             .find(|x: &Node| x.text() == "Test Hello Yes")
@@ -387,7 +389,7 @@ fn serve_file_instead_of_404_in_pretty_urls_mode(
         .get(format!("{}{}", server.url(), url))
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(
         parsed
             .find(|x: &Node| x.text() == "Test Hello Yes")
@@ -426,7 +428,7 @@ fn serves_requests_static_file_check(
     #[case] static_file_pattern: String,
 ) -> Result<(), Error> {
     let body = reqwest_client.get(server.url()).send()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     let re = Regex::new(&static_file_pattern).unwrap();
 
     assert!(
@@ -451,7 +453,7 @@ fn serves_no_directory_if_indexing_disabled(
 ) -> Result<(), Error> {
     let body = reqwest_client.get(server.url()).send()?;
     assert_eq!(body.status(), StatusCode::NOT_FOUND);
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     assert!(
         parsed
