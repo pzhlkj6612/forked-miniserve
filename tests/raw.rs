@@ -1,14 +1,13 @@
 use pretty_assertions::assert_eq;
 use reqwest::blocking::Client;
 use rstest::rstest;
-use select::{
-    document::Document,
-    predicate::{Class, Name},
-};
+use select::predicate::{Class, Name};
 
 mod fixtures;
+mod utils;
 
 use crate::fixtures::{Error, TestServer, reqwest_client, server};
+use crate::utils::document_from_read;
 
 /// The footer displays the correct wget command to download the folder recursively
 // This test can't test all aspects of the wget footer,
@@ -28,7 +27,7 @@ fn ui_displays_wget_element(
         .get(format!("{}{}", server.url(), dir))
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     let wget_url = parsed
         .find(Class("downloadDirectory"))
         .next()
@@ -93,7 +92,7 @@ fn raw_mode_links_to_directories_end_with_raw_true(
         .get(format!("{}{}?raw=true", server.url(), dir))
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     verify_a_tags(parsed);
 
     Ok(())

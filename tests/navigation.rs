@@ -4,13 +4,12 @@ use std::process::{Command, Stdio};
 use pretty_assertions::{assert_eq, assert_ne};
 use reqwest::blocking::Client;
 use rstest::rstest;
-use select::document::Document;
 
 mod fixtures;
 mod utils;
 
 use crate::fixtures::{DEEPLY_NESTED_FILE, DIRECTORIES, Error, TestServer, reqwest_client, server};
-use crate::utils::{get_link_from_text, get_link_hrefs_with_prefix};
+use crate::utils::{document_from_read, get_link_from_text, get_link_hrefs_with_prefix};
 
 #[rstest]
 #[case("", "/")]
@@ -60,14 +59,14 @@ fn can_navigate_into_dirs_and_back(
         .get(base_url.as_str())
         .send()?
         .error_for_status()?;
-    let initial_parsed = Document::from_read(initial_body)?;
+    let initial_parsed = document_from_read(initial_body)?;
     for &directory in DIRECTORIES {
         let dir_elem = get_link_from_text(&initial_parsed, directory).expect("Dir not found.");
         let body = reqwest_client
             .get(format!("{base_url}{dir_elem}"))
             .send()?
             .error_for_status()?;
-        let parsed = Document::from_read(body)?;
+        let parsed = document_from_read(body)?;
         let back_link =
             get_link_from_text(&parsed, "Parent directory").expect("Back link not found.");
         let resp = reqwest_client
@@ -108,7 +107,7 @@ fn can_navigate_deep_into_dirs_and_back(
     for dir_name in dir_names.iter() {
         let resp = reqwest_client.get(next_url.as_str()).send()?;
         let body = resp.error_for_status()?;
-        let parsed = Document::from_read(body)?;
+        let parsed = document_from_read(body)?;
         let dir_elem =
             get_link_from_text(&parsed, &format!("{dir_name}/")).expect("Dir not found.");
         next_url = next_url.join(&dir_elem)?;
@@ -119,7 +118,7 @@ fn can_navigate_deep_into_dirs_and_back(
     while next_url != base_url {
         let resp = reqwest_client.get(next_url.as_str()).send()?;
         let body = resp.error_for_status()?;
-        let parsed = Document::from_read(body)?;
+        let parsed = document_from_read(body)?;
         let dir_elem =
             get_link_from_text(&parsed, "Parent directory").expect("Back link not found.");
         next_url = next_url.join(&dir_elem)?;
@@ -149,7 +148,7 @@ fn can_navigate_using_breadcrumbs(
 
     let resp = reqwest_client.get(nested_url.as_str()).send()?;
     let body = resp.error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     // can go back to root dir by clicking title
     let title_link = get_link_from_text(&parsed, &title_name).expect("Root dir link not found.");
@@ -179,7 +178,7 @@ fn can_specify_default_sorting_order(
 ) -> Result<(), Error> {
     let resp = reqwest_client.get(server.url()).send()?;
     let body = resp.error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     let links = get_link_hrefs_with_prefix(&parsed, "/");
     let dir_iter = server.path();

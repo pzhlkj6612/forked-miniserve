@@ -1,7 +1,14 @@
+use std::io::Read;
+
 use select::document::Document;
 use select::node::Node;
 use select::predicate::Name;
 use select::predicate::Predicate;
+
+/// Parse an HTML document from a reader (e.g., an HTTP response body).
+pub fn document_from_read<R: Read>(readable: R) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Document::from_read(readable)?)
+}
 
 /// Return the href attribute content for the closest anchor found by `text`.
 pub fn get_link_from_text(document: &Document, text: &str) -> Option<String> {

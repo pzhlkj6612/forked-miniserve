@@ -6,11 +6,13 @@ use assert_cmd::cargo;
 use assert_fs::TempDir;
 use reqwest::blocking::Client;
 use rstest::rstest;
-use select::{document::Document, predicate::Attr};
+use select::predicate::Attr;
 
 mod fixtures;
+mod utils;
 
 use crate::fixtures::{Error, TestServer, port, reqwest_client, server, tmpdir};
+use crate::utils::document_from_read;
 
 #[rstest]
 fn webpage_hides_qrcode_when_disabled(
@@ -21,7 +23,7 @@ fn webpage_hides_qrcode_when_disabled(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     assert!(parsed.find(Attr("id", "qrcode")).next().is_none());
 
     Ok(())
@@ -36,7 +38,7 @@ fn webpage_shows_qrcode_when_enabled(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     let qr_container = parsed
         .find(Attr("id", "qrcode"))
         .next()

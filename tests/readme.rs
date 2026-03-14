@@ -5,13 +5,15 @@ use std::path::PathBuf;
 use reqwest::blocking::Client;
 use rstest::rstest;
 use select::predicate::Attr;
-use select::{document::Document, node::Node};
+use select::node::Node;
 
 mod fixtures;
+mod utils;
 
 use fixtures::{DIRECTORIES, Error, FILES, TestServer, server};
 
 use crate::fixtures::reqwest_client;
+use crate::utils::document_from_read;
 
 fn write_readme_contents(path: PathBuf, filename: &str) -> PathBuf {
     let readme_path = path.join(filename);
@@ -62,7 +64,7 @@ fn no_readme_contents(server: TestServer, reqwest_client: Client) -> Result<(), 
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     // Check that the regular file listing still works.
     for &file in FILES {
@@ -97,7 +99,7 @@ fn show_root_readme_contents(
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
 
     // All the files are still getting listed...
     for &file in FILES {
@@ -131,7 +133,7 @@ fn show_nested_readme_contents(
             .get(server.url().join(dir)?)
             .send()?
             .error_for_status()?;
-        let parsed = Document::from_read(body)?;
+        let parsed = document_from_read(body)?;
 
         // All the files are still getting listed...
         for &file in FILES {

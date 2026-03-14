@@ -2,11 +2,13 @@ use assert_cmd::{Command, cargo};
 use predicates::str::contains;
 use reqwest::blocking::Client;
 use rstest::rstest;
-use select::{document::Document, node::Node};
+use select::node::Node;
 
 mod fixtures;
+mod utils;
 
 use crate::fixtures::{Error, FILES, TestServer, reqwest_client, server};
+use crate::utils::document_from_read;
 
 /// Can start the server with TLS and receive encrypted responses.
 #[rstest]
@@ -27,7 +29,7 @@ fn tls_works(#[case] server: TestServer, reqwest_client: Client) -> Result<(), E
         .get(server.url())
         .send()?
         .error_for_status()?;
-    let parsed = Document::from_read(body)?;
+    let parsed = document_from_read(body)?;
     for &file in FILES {
         assert!(parsed.find(|x: &Node| x.text() == file).next().is_some());
     }
