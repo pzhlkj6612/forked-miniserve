@@ -1,8 +1,10 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 
+use libflate::gzip::Decoder;
 use reqwest::{StatusCode, blocking::Client};
 use rstest::rstest;
 use select::{document::Document, predicate::Text};
+use tar::{Archive, EntryType};
 use zip::ZipArchive;
 
 mod fixtures;
@@ -204,35 +206,108 @@ fn archives_links_and_downloads(
     Ok(())
 }
 
-enum ExpectedLen {
-    /// Exact byte length expected.
-    Exact(usize),
-    /// Minimum byte length expected.
-    Min(usize),
-}
+const S_IFMT: u32 = 0o170000;
+const S_IFLNK: u32 = 0o120000;
 
-/// Broken symlinks (from [`fixtures::BROKEN_SYMLINK`]) yield different archive behaviors:
-/// - tar_gz: a file with only partial header fields. See "rfc1952 § 2.3.1. Member header and trailer".
-/// - tar: a tarball containing a subset of files.
-/// - zip: an empty file.
+/// Broken symlinks are preserved as symlink entries in archives.
 #[rstest]
-#[case::tar_gz(ArchiveKind::TarGz, ExpectedLen::Exact(10))]
-#[case::tar(ArchiveKind::Tar, ExpectedLen::Min(512 + 512 + 2 * 512))]
-#[case::zip(ArchiveKind::Zip, ExpectedLen::Exact(0))]
-fn archive_behave_differently_with_broken_symlinks(
+#[case::tar_gz(ArchiveKind::TarGz)]
+#[case::tar(ArchiveKind::Tar)]
+#[case::zip(ArchiveKind::Zip)]
+fn archives_preserve_broken_symlinks(
     #[case] kind: ArchiveKind,
-    #[case] expected: ExpectedLen,
     #[with(&[ArchiveKind::TarGz.server_option(), ArchiveKind::Tar.server_option(), ArchiveKind::Zip.server_option()])]
     server: TestServer,
     reqwest_client: Client,
 ) -> Result<(), Error> {
-    let (status_code, byte_len) = download_archive_bytes(&reqwest_client, &server, kind)?;
-    assert_eq!(status_code, StatusCode::OK);
+    let resp = reqwest_client
+        .get(server.url().join(kind.download_param())?)
+        .send()?
+        .error_for_status()?;
 
-    match expected {
-        ExpectedLen::Exact(len) => assert_eq!(byte_len, len),
-        ExpectedLen::Min(len) => assert!(byte_len >= len),
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let bytes = resp.bytes()?.to_vec();
+    match kind {
+        ArchiveKind::TarGz => assert_tar_contains_broken_symlink(bytes, true)?,
+        ArchiveKind::Tar => assert_tar_contains_broken_symlink(bytes, false)?,
+        ArchiveKind::Zip => assert_zip_contains_broken_symlink(bytes)?,
     }
+
+    Ok(())
+}
+
+fn assert_tar_contains_broken_symlink(bytes: Vec<u8>, gzipped: bool) -> Result<(), Error> {
+    if gzipped {
+        let decoder = Decoder::new(Cursor::new(bytes))?;
+        assert_tar_reader_contains_broken_symlink(decoder)
+    } else {
+        assert_tar_reader_contains_broken_symlink(Cursor::new(bytes))
+    }
+}
+
+fn assert_tar_reader_contains_broken_symlink<R: Read>(reader: R) -> Result<(), Error> {
+    let mut archive = Archive::new(reader);
+    let mut found = false;
+
+    for entry in archive.entries()? {
+        let entry = entry?;
+        let path = entry.path()?;
+        if path.as_ref().ends_with(crate::fixtures::BROKEN_SYMLINK) {
+            assert_eq!(entry.header().entry_type(), EntryType::Symlink);
+            let link_name = entry
+                .link_name()?
+                .expect("Symlink entry must have a target path");
+            assert!(
+                link_name
+                    .as_ref()
+                    .ends_with(crate::fixtures::BROKEN_SYMLINK),
+                "Symlink target did not match the broken path"
+            );
+            found = true;
+        }
+    }
+
+    assert!(
+        found,
+        "Archive did not contain a broken symlink entry for '{}'",
+        crate::fixtures::BROKEN_SYMLINK
+    );
+
+    Ok(())
+}
+
+fn assert_zip_contains_broken_symlink(bytes: Vec<u8>) -> Result<(), Error> {
+    let mut archive = ZipArchive::new(Cursor::new(bytes))?;
+    let mut found = false;
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        if entry.name().ends_with(crate::fixtures::BROKEN_SYMLINK) {
+            let mode = entry.unix_mode().unwrap_or(0);
+            assert_eq!(
+                mode & S_IFMT,
+                S_IFLNK,
+                "ZIP entry '{}' is not marked as a symlink",
+                entry.name()
+            );
+
+            let mut contents = String::new();
+            entry.read_to_string(&mut contents)?;
+            assert!(
+                contents.ends_with(crate::fixtures::BROKEN_SYMLINK),
+                "Symlink target did not match the broken path"
+            );
+
+            found = true;
+        }
+    }
+
+    assert!(
+        found,
+        "ZIP archive did not contain a broken symlink entry for '{}'",
+        crate::fixtures::BROKEN_SYMLINK
+    );
 
     Ok(())
 }
