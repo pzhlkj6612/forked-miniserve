@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use reqwest::blocking::Client;
 use rstest::rstest;
+use select::document::Document;
 use select::predicate::Attr;
 use select::node::Node;
 

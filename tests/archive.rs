@@ -2,6 +2,7 @@ use std::io::Cursor;
 
 use reqwest::{StatusCode, blocking::Client};
 use rstest::rstest;
+use select::document::Document;
 use select::predicate::Text;
 use zip::ZipArchive;
 
