@@ -1,11 +1,11 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
 use libflate::gzip::Encoder;
 use serde::Deserialize;
 use strum::{Display, EnumIter, EnumString};
-use tar::Builder;
+use tar::{Builder, EntryType, Header, HeaderMode};
 use zip::{ZipWriter, write};
 
 use crate::errors::RuntimeError;
@@ -147,25 +147,108 @@ where
 {
     let mut tar_builder = Builder::new(out);
 
-    tar_builder.follow_symlinks(!skip_symlinks);
-
-    // Recursively adds the content of src_dir into the archive stream
-    tar_builder
-        .append_dir_all(inner_folder, src_dir)
-        .map_err(|e| {
-            RuntimeError::IoError(
-                format!(
-                    "Failed to append the content of '{}' to the TAR archive",
-                    src_dir.to_str().unwrap_or("file")
-                ),
-                e,
-            )
-        })?;
+    append_tar_entries(
+        &mut tar_builder,
+        src_dir,
+        &PathBuf::from(inner_folder),
+        skip_symlinks,
+    )?;
 
     // Finish the archive
     tar_builder.into_inner().map_err(|e| {
         RuntimeError::IoError("Failed to finish writing the TAR archive".to_string(), e)
     })?;
+
+    Ok(())
+}
+
+fn append_tar_entries<W: Write>(
+    tar_builder: &mut Builder<W>,
+    src_dir: &Path,
+    archive_root: &Path,
+    skip_symlinks: bool,
+) -> Result<(), RuntimeError> {
+    let mut stack = vec![src_dir.to_path_buf()];
+
+    while let Some(path) = stack.pop() {
+        let metadata = fs::symlink_metadata(&path).map_err(|e| {
+            RuntimeError::IoError(
+                format!(
+                    "Could not get file metadata of '{}'",
+                    path.to_string_lossy()
+                ),
+                e,
+            )
+        })?;
+
+        let relative_path = path
+            .strip_prefix(src_dir)
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::new());
+        let destination = archive_root.join(relative_path);
+
+        if metadata.file_type().is_symlink() {
+            if skip_symlinks {
+                continue;
+            }
+
+            let link_target = fs::read_link(&path).map_err(|e| {
+                RuntimeError::IoError(
+                    format!("Could not read symlink '{}'", path.to_string_lossy()),
+                    e,
+                )
+            })?;
+            let mut header = Header::new_gnu();
+            header.set_metadata_in_mode(&metadata, HeaderMode::Complete);
+            header.set_entry_type(EntryType::Symlink);
+            header.set_size(0);
+            tar_builder
+                .append_link(&mut header, &destination, &link_target)
+                .map_err(|e| {
+                    RuntimeError::IoError(
+                        format!(
+                            "Failed to append symlink '{}' to the TAR archive",
+                            destination.to_string_lossy()
+                        ),
+                        e,
+                    )
+                })?;
+        } else if metadata.is_dir() {
+            tar_builder.append_dir(&destination, &path).map_err(|e| {
+                RuntimeError::IoError(
+                    format!(
+                        "Failed to append directory '{}' to the TAR archive",
+                        destination.to_string_lossy()
+                    ),
+                    e,
+                )
+            })?;
+
+            for entry in fs::read_dir(&path).map_err(|e| {
+                RuntimeError::IoError(
+                    format!("Could not read directory '{}'", path.to_string_lossy()),
+                    e,
+                )
+            })? {
+                let entry = entry.map_err(|e| {
+                    RuntimeError::IoError("Could not read directory entry".to_string(), e)
+                })?;
+                stack.push(entry.path());
+            }
+        } else {
+            tar_builder
+                .append_path_with_name(&path, &destination)
+                .map_err(|e| {
+                    RuntimeError::IoError(
+                        format!(
+                            "Failed to append file '{}' to the TAR archive",
+                            destination.to_string_lossy()
+                        ),
+                        e,
+                    )
+                })?;
+        }
+    }
 
     Ok(())
 }
@@ -203,6 +286,8 @@ where
 {
     let options =
         write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let symlink_options: write::FileOptions<'static, ()> =
+        write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
     let mut paths_queue: Vec<PathBuf> = vec![directory.to_path_buf()];
     let zip_root_folder_name = directory.file_name().ok_or_else(|| {
         RuntimeError::InvalidPathError("Directory name terminates in \"..\"".to_string())
@@ -234,7 +319,7 @@ where
                     )
                 })?
                 .path();
-            let entry_metadata = std::fs::metadata(entry_path.clone()).map_err(|e| {
+            let entry_metadata = std::fs::symlink_metadata(entry_path.clone()).map_err(|e| {
                 RuntimeError::IoError(
                     format!(
                         "Could not get file metadata of '{}'",
@@ -245,9 +330,6 @@ where
                 )
             })?;
 
-            if entry_metadata.file_type().is_symlink() && skip_symlinks {
-                continue;
-            }
             let current_entry_name = entry_path.file_name().ok_or_else(|| {
                 RuntimeError::InvalidPathError("Invalid file or directory name".to_string())
             })?;
@@ -270,6 +352,29 @@ where
                     .to_string_lossy()
                     .into_owned()
             };
+
+            if entry_metadata.file_type().is_symlink() {
+                if skip_symlinks {
+                    continue;
+                }
+
+                let link_target = std::fs::read_link(&entry_path).map_err(|e| {
+                    RuntimeError::IoError(
+                        format!("Could not read symlink '{}'", entry_path.to_string_lossy()),
+                        e,
+                    )
+                })?;
+
+                zip_writer
+                    .add_symlink_from_path(&relative_path, &link_target, symlink_options.clone())
+                    .map_err(|_| {
+                        RuntimeError::ArchiveCreationDetailError(
+                            "Could not add symlink path to ZIP".to_string(),
+                        )
+                    })?;
+
+                continue;
+            }
 
             if entry_metadata.is_file() {
                 let mut f = File::open(&entry_path)
